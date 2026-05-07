@@ -33,3 +33,9 @@ jobs:
           docker build -f docker/Dockerfile.dispatcher -t lambda_dispatcher_function .
           docker tag lambda_dispatcher_function:latest ${{ secrets.ECR_REPO_DISPATCHER }}:latest
           docker push ${{ secrets.ECR_REPO_DISPATCHER }}:latest
+
+      - name: Update Lambda function
+        run: |
+          aws lambda update-function-code \
+            --function-name dispatch_city_pipelines \
+            --image-uri ${{ secrets.ECR_REPO_DISPATCHER }}:latest

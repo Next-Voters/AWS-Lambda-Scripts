@@ -34,3 +34,9 @@ jobs:
           docker build -f docker/Dockerfile.email_sender -t lambda_email_sender .
           docker tag lambda_email_sender:latest ${{ secrets.ECR_REPO_EMAIL_SENDER }}:latest
           docker push ${{ secrets.ECR_REPO_EMAIL_SENDER }}:latest
+
+      - name: Update Lambda function
+        run: |
+          aws lambda update-function-code \
+            --function-name send_emails \
+            --image-uri ${{ secrets.ECR_REPO_EMAIL_SENDER }}:latest

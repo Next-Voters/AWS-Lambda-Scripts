@@ -1,0 +1,35 @@
+name: Deploy Dispatcher to ECR
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - dispatcher.py
+      - requirements.txt
+      - docker/Dockerfile.dispatcher
+
+env:
+  AWS_REGION: us-east-2
+
+jobs:
+  deploy-dispatcher:
+    name: Build & Push Dispatcher
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push dispatcher image
+        run: |
+          docker build -f docker/Dockerfile.dispatcher -t lambda_dispatcher_function .
+          docker tag lambda_dispatcher_function:latest ${{ secrets.ECR_REPO_DISPATCHER }}:latest
+          docker push ${{ secrets.ECR_REPO_DISPATCHER }}:latest

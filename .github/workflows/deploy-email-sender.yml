@@ -1,0 +1,36 @@
+name: Deploy Email Sender to ECR
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - email_sender.py
+      - templates/**
+      - requirements.txt
+      - docker/Dockerfile.email_sender
+
+env:
+  AWS_REGION: us-east-2
+
+jobs:
+  deploy-email-sender:
+    name: Build & Push Email Sender
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push email sender image
+        run: |
+          docker build -f docker/Dockerfile.email_sender -t lambda_email_sender .
+          docker tag lambda_email_sender:latest ${{ secrets.ECR_REPO_EMAIL_SENDER }}:latest
+          docker push ${{ secrets.ECR_REPO_EMAIL_SENDER }}:latest

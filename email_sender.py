@@ -15,7 +15,7 @@ logger.setLevel(logging.INFO)
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_KEY"]
 SES_SENDER_EMAIL = os.environ["SES_SENDER_EMAIL"]
-SHARE_BASE_URL = os.environ["SHARE_BASE_URL"]
+SHARE_BASE_URL = "https://www.nextvoters.com"
 
 ses_client = boto3.client("sesv2")
 

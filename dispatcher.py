@@ -18,10 +18,10 @@ CONTAINER_NAME = os.environ["CONTAINER_NAME"]
 ecs_client = boto3.client("ecs")
 
 
-def fetch_cities():
+def fetch_regions():
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-    response = supabase.table("supported_cities").select("city").execute()
-    return [row["city"] for row in response.data]
+    response = supabase.table("supported_regions").select("region").execute()
+    return [row["region"] for row in response.data]
 
 
 def dispatch_task(city):
@@ -56,26 +56,26 @@ def dispatch_task(city):
 
 
 def lambda_handler(event, context):
-    cities = fetch_cities()
-    logger.info(f"Fetched {len(cities)} cities from supported_cities")
+    regions = fetch_regions()
+    logger.info(f"Fetched {len(regions)} regions from supported_regions")
 
     results = []
     failures = []
 
-    for city in cities:
+    for region in regions:
         try:
-            task_arns = dispatch_task(city)
-            results.append({"city": city, "taskArns": task_arns})
-            logger.info(f"Dispatched task for {city}: {task_arns}")
+            task_arns = dispatch_task(region)
+            results.append({"region": region, "taskArns": task_arns})
+            logger.info(f"Dispatched task for {region}: {task_arns}")
         except Exception as e:
-            logger.error(f"Failed to dispatch task for {city}: {e}")
-            failures.append({"city": city, "error": str(e)})
+            logger.error(f"Failed to dispatch task for {region}: {e}")
+            failures.append({"region": region, "error": str(e)})
 
     status_code = 200 if not failures else 207
     return {
         "statusCode": status_code,
         "body": json.dumps({
-            "total_cities": len(cities),
+            "total_regions": len(regions),
             "dispatched": len(results),
             "failed": len(failures),
             "results": results,

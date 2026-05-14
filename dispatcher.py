@@ -67,9 +67,9 @@ def lambda_handler(event, context):
             task_arns = dispatch_task(region)
             results.append({"region": region, "taskArns": task_arns})
             logger.info(f"Dispatched task for {region}: {task_arns}")
-        except Exception as e:
-            logger.error(f"Failed to dispatch task for {region}: {e}")
-            failures.append({"region": region, "error": str(e)})
+        except Exception as error:
+            logger.error(f"Failed to dispatch task for {region}: {error}")
+            failures.append({"region": region, "error": str(error)})
 
     status_code = 200 if not failures else 207
     return {

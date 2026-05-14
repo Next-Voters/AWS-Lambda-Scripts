@@ -39,6 +39,7 @@ def dispatch_task(region):
             "containerOverrides": [
                 {
                     "name": CONTAINER_NAME,
+                    "command": ["sh", "-c", "python main.py \"$REGION\""],
                     "environment": [
                         {"name": "REGION", "value": region},
                     ],

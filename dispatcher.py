@@ -20,11 +20,11 @@ ecs_client = boto3.client("ecs")
 
 def fetch_regions():
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-    response = supabase.table("supported_regions").select("region").execute()
+    response = supabase.table("regions").select("region").execute()
     return [row["region"] for row in response.data]
 
 
-def dispatch_task(city):
+def dispatch_task(region):
     task_response = ecs_client.run_task(
         cluster=ECS_CLUSTER,
         taskDefinition=ECS_TASK_DEFINITION,
@@ -41,7 +41,7 @@ def dispatch_task(city):
                 {
                     "name": CONTAINER_NAME,
                     "environment": [
-                        {"name": "CITY", "value": city},
+                        {"name": "REGION", "value": region},
                     ],
                 }
             ]

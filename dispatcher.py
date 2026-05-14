@@ -17,7 +17,6 @@ CONTAINER_NAME = os.environ["CONTAINER_NAME"]
 
 ecs_client = boto3.client("ecs")
 
-
 def fetch_regions():
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
     response = supabase.table("regions").select("region").execute()

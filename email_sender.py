@@ -208,8 +208,8 @@ def send_bulk_emails(subject, html_body, recipients):
                 DefaultContent={
                     "Template": {
                         "TemplateContent": {
-                            "Subject": {"Data": subject},
-                            "Html": {"Data": html_body},
+                            "Subject": subject,
+                            "Html": html_body,
                         },
                         "TemplateData": "{}",
                     }

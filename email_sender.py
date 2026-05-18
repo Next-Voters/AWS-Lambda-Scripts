@@ -66,6 +66,11 @@ def fetch_subscriptions():
 
 
 def fetch_todays_reports():
+    """Fetch today's report headers joined with the parent reports table.
+
+    Returns a dict keyed by (city, topic_id) with a list of items, each
+    containing 'header' (str) and 'bullets' (list[str]).
+    """
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
     today = date.today().isoformat()
     reports_cache = {}
@@ -73,16 +78,21 @@ def fetch_todays_reports():
 
     while True:
         response = (
-            supabase.table("reports")
-            .select("city, topic_id, items")
-            .eq("report_date", today)
+            supabase.table("report_headers")
+            .select("topic_id, header, bullets, reports!inner(city, report_date)")
+            .eq("reports.report_date", today)
             .range(offset, offset + PAGE_SIZE - 1)
             .execute()
         )
 
         for row in response.data:
-            key = (row["city"], row["topic_id"])
-            reports_cache.setdefault(key, []).extend(row["items"])
+            city = row["reports"]["city"]
+            topic_id = row["topic_id"]
+            key = (city, topic_id)
+            reports_cache.setdefault(key, []).append({
+                "header": row["header"],
+                "bullets": row.get("bullets", []),
+            })
 
         if len(response.data) < PAGE_SIZE:
             break
@@ -105,6 +115,10 @@ def build_table_of_contents(topic_names):
 
 
 def build_topic_sections(reports_for_subscriber, topic_names_map):
+    """Build HTML sections for each topic's legislation items.
+
+    Each item has a 'header' (text) and 'bullets' (list of strings).
+    """
     sections = []
     for topic_id, items in reports_for_subscriber.items():
         topic_name = topic_names_map.get(topic_id, "Topic")
@@ -119,22 +133,24 @@ def build_topic_sections(reports_for_subscriber, topic_names_map):
         )
 
         for item in items:
-            headline = html.escape(item.get("headline", item.get("title", "")))
-            summary = html.escape(item.get("summary", item.get("body", "")))
-            source = html.escape(item.get("source", ""))
+            header = html.escape(item.get("header", ""))
+            bullets = item.get("bullets", [])
 
             item_html = (
                 f'<tr><td style="padding: 8px 35px;">'
                 f'<p style="font-family: \'DM Sans\', Arial, sans-serif; font-size: 15px; '
-                f'color: #1A1A1A; margin: 0 0 4px 0; font-weight: 700;">{headline}</p>'
-                f'<p style="font-family: \'DM Sans\', Arial, sans-serif; font-size: 14px; '
-                f'color: #444444; margin: 0; line-height: 1.5;">{summary}</p>'
+                f'color: #1A1A1A; margin: 0 0 4px 0; font-weight: 700;">{header}</p>'
             )
-            if source:
+
+            if bullets:
                 item_html += (
-                    f'<p style="font-family: \'DM Sans\', Arial, sans-serif; font-size: 11px; '
-                    f'color: #888888; margin: 4px 0 0 0;">Source: {source}</p>'
+                    '<ul style="font-family: \'DM Sans\', Arial, sans-serif; font-size: 14px; '
+                    'color: #444444; margin: 4px 0 0 0; padding-left: 20px; line-height: 1.5;">'
                 )
+                for bullet in bullets:
+                    item_html += f'<li style="margin-bottom: 2px;">{html.escape(str(bullet))}</li>'
+                item_html += '</ul>'
+
             item_html += '</td></tr>'
             section_html += item_html
 

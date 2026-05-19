@@ -4,7 +4,7 @@ import html
 import logging
 from datetime import date
 from collections import defaultdict
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import boto3
 from supabase import create_client
@@ -79,7 +79,7 @@ def fetch_todays_reports():
     while True:
         response = (
             supabase.table("report_headers")
-            .select("topic_id, header, bullets, reports!inner(city, report_date)")
+            .select("topic_id, header, bullets, sources, reports!inner(city, report_date)")
             .eq("reports.report_date", today)
             .range(offset, offset + PAGE_SIZE - 1)
             .execute()
@@ -92,6 +92,7 @@ def fetch_todays_reports():
             reports_cache.setdefault(key, []).append({
                 "header": row["header"],
                 "bullets": row.get("bullets", []),
+                "sources": row.get("sources", []),
             })
 
         if len(response.data) < PAGE_SIZE:
@@ -120,6 +121,8 @@ def build_topic_sections(reports_for_subscriber, topic_names_map):
     Each item has a 'header' (text) and 'bullets' (list of strings).
     """
     sections = []
+    citations = []
+    seen_urls = {}
     for topic_id, items in reports_for_subscriber.items():
         topic_name = topic_names_map.get(topic_id, "Topic")
         anchor = topic_name.lower().replace(" ", "-")
@@ -135,12 +138,28 @@ def build_topic_sections(reports_for_subscriber, topic_names_map):
         for item in items:
             header = html.escape(item.get("header", ""))
             bullets = item.get("bullets", [])
+            sources = item.get("sources", [])
+
+            # Collect citation numbers for this item (dedup across items)
+            item_citation_nums = []
+            for url in sources:
+                if url not in seen_urls:
+                    citations.append({"url": url})
+                    seen_urls[url] = len(citations)
+                item_citation_nums.append(seen_urls[url])
 
             item_html = (
                 f'<tr><td style="padding: 8px 35px;">'
                 f'<p style="font-family: \'DM Sans\', Arial, sans-serif; font-size: 15px; '
-                f'color: #1A1A1A; margin: 0 0 4px 0; font-weight: 700;">{header}</p>'
+                f'color: #1A1A1A; margin: 0 0 4px 0; font-weight: 700;">{header}'
             )
+            if item_citation_nums:
+                refs = "".join(f"[{n}]" for n in item_citation_nums)
+                item_html += (
+                    f'<sup style="font-size: 10px; color: #E63946; margin-left: 2px;">'
+                    f'{refs}</sup>'
+                )
+            item_html += '</p>'
 
             if bullets:
                 item_html += (
@@ -156,10 +175,60 @@ def build_topic_sections(reports_for_subscriber, topic_names_map):
 
         sections.append(section_html)
 
-    return "\n".join(sections)
+    return "\n".join(sections), citations
 
 
-def build_email_html(city, topic_sections_html, toc_html):
+def _display_domain(url):
+    """Extract a readable domain name from a URL for display."""
+    try:
+        domain = urlparse(url).netloc
+        if domain.startswith("www."):
+            domain = domain[4:]
+        return domain or url
+    except Exception:
+        return url
+
+
+def build_citations_section(citations):
+    if not citations:
+        return ""
+
+    rows = (
+        '<tr><td style="padding: 0 35px;">'
+        '<table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0">'
+        '<tr><td style="height: 1px; background-color: #E0E0E0;"></td></tr>'
+        '</table></td></tr>'
+        '<tr><td style="padding: 20px 35px 8px 35px;">'
+        '<h2 style="font-family: \'Bebas Neue\', Arial, sans-serif; font-size: 18px; '
+        'color: #1A1A1A; margin: 0; letter-spacing: 1px; text-transform: uppercase;">'
+        'Sources</h2></td></tr>'
+    )
+
+    for i, cite in enumerate(citations, 1):
+        url = cite.get("url", "")
+        if url:
+            label = html.escape(_display_domain(url))
+            safe_url = html.escape(url)
+            text = (
+                f'<a href="{safe_url}" target="_blank" style="color: #E63946; '
+                f'text-decoration: underline;">{label}</a>'
+            )
+        else:
+            continue
+
+        rows += (
+            f'<tr><td style="padding: 2px 35px;">'
+            f'<p style="font-family: \'DM Sans\', Arial, sans-serif; font-size: 12px; '
+            f'color: #666666; margin: 0; line-height: 1.6;">'
+            f'<span style="color: #E63946; font-weight: 600;">[{i}]</span> {text}'
+            f'</p></td></tr>'
+        )
+
+    rows += '<tr><td style="padding: 0 0 12px 0;"></td></tr>'
+    return rows
+
+
+def build_email_html(city, topic_sections_html, toc_html, citations_html):
     today = date.today()
     header_date = f"{today.strftime('%B %d, %Y').upper()} | {city.upper()}"
     city_header = f"What's new in {city}?"
@@ -177,6 +246,7 @@ def build_email_html(city, topic_sections_html, toc_html):
     rendered = rendered.replace("{{TABLE_OF_CONTENTS}}", toc_html)
     rendered = rendered.replace("{{TOPIC_SECTIONS}}", topic_sections_html)
     rendered = rendered.replace("{{CONTENT}}", "")
+    rendered = rendered.replace("{{CITATIONS}}", citations_html)
     rendered = rendered.replace("{{TWITTER_SHARE_URL}}", twitter_share)
     rendered = rendered.replace("{{FACEBOOK_SHARE_URL}}", facebook_share)
     rendered = rendered.replace("{{LINKEDIN_SHARE_URL}}", linkedin_share)
@@ -274,8 +344,9 @@ def lambda_handler(event, context):
 
         topic_names = [topic_names_map[tid] for tid in reports_for_group]
         toc_html = build_table_of_contents(topic_names)
-        topic_sections_html = build_topic_sections(reports_for_group, topic_names_map)
-        html_body = build_email_html(city, topic_sections_html, toc_html)
+        topic_sections_html, citations = build_topic_sections(reports_for_group, topic_names_map)
+        citations_html = build_citations_section(citations)
+        html_body = build_email_html(city, topic_sections_html, toc_html, citations_html)
 
         subject = f"What's new in {city}? - {date.today().strftime('%B %d, %Y')}"
         recipients = [sub["contact"] for sub in group_subs]

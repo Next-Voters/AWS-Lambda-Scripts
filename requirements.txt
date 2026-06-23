@@ -1,2 +1,3 @@
 supabase
 boto3
+requests

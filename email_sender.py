@@ -6,7 +6,7 @@ from datetime import date
 from collections import defaultdict
 from urllib.parse import quote, urlparse
 
-import boto3
+import requests
 from supabase import create_client
 
 logger = logging.getLogger()
@@ -14,10 +14,12 @@ logger.setLevel(logging.INFO)
 
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_KEY"]
-SES_SENDER_EMAIL = os.environ["SES_SENDER_EMAIL"]
+MAILGUN_API_KEY = os.environ["MAILGUN_API_KEY"]
+MAILGUN_DOMAIN = os.environ["MAILGUN_DOMAIN"]
+MAILGUN_SENDER_EMAIL = os.environ["MAILGUN_SENDER_EMAIL"]
 SHARE_BASE_URL = "https://www.nextvoters.com"
 
-ses_client = boto3.client("sesv2")
+MAILGUN_API_URL = f"https://api.mailgun.net/v3/{MAILGUN_DOMAIN}/messages"
 
 TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), "templates", "email_report.html")
 with open(TEMPLATE_PATH, "r") as f:
@@ -289,39 +291,41 @@ def send_bulk_emails(subject, html_body, recipients):
     success_count = 0
     failures = []
 
-    for i in range(0, len(recipients), 50):
-        batch = recipients[i:i + 50]
-        entries = [
-            {"Destination": {"ToAddresses": [email]}}
-            for email in batch
-        ]
+    for i in range(0, len(recipients), 1000):
+        batch = recipients[i:i + 1000]
+        # REQUIRED for privacy: a non-empty recipient-variables map puts Mailgun in
+        # batch mode, delivering a separate message per address so recipients never
+        # see each other's emails in the To header. Do not remove.
+        recipient_vars = {email: {} for email in batch}
 
         try:
-            response = ses_client.send_bulk_email(
-                FromEmailAddress=SES_SENDER_EMAIL,
-                DefaultContent={
-                    "Template": {
-                        "TemplateContent": {
-                            "Subject": subject,
-                            "Html": html_body,
-                        },
-                        "TemplateData": "{}",
-                    }
+            response = requests.post(
+                MAILGUN_API_URL,
+                auth=("api", MAILGUN_API_KEY),
+                data={
+                    "from": MAILGUN_SENDER_EMAIL,
+                    "to": batch,
+                    "subject": subject,
+                    "html": html_body,
+                    "recipient-variables": json.dumps(recipient_vars),
                 },
-                BulkEmailEntries=entries,
+                timeout=30,  # (connect+read) — never block to Lambda max duration on a stalled socket
             )
 
-            for idx, result in enumerate(response.get("BulkEmailEntryResults", [])):
-                if result["Status"] == "SUCCESS":
-                    success_count += 1
-                else:
-                    failures.append({
-                        "email": batch[idx],
-                        "error": result.get("Error", "Unknown"),
-                    })
+            if 200 <= response.status_code < 300:
+                success_count += len(batch)
+            else:
+                logger.error(
+                    f"Mailgun send failed for batch starting at index {i}: "
+                    f"HTTP {response.status_code} - {response.text}"
+                )
+                failures.extend(
+                    {"email": email, "error": f"HTTP {response.status_code}"}
+                    for email in batch
+                )
 
-        except Exception as e:
-            logger.error(f"SES bulk send failed for batch starting at index {i}: {e}")
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Mailgun send failed for batch starting at index {i}: {e}")
             failures.extend({"email": email, "error": str(e)} for email in batch)
 
     return success_count, failures
